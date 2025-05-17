@@ -1,47 +1,78 @@
-#include <WiFi.h>      // Required for WiFi functionality on ESP32
-#include <esp_now.h>   // Required for ESP-NOW communication
+#include <Servo.h>
 
-// Define a structure to receive data from the transmitter
-typedef struct struct_message {
-  int angle;      // Angle of the radar or gun servo (in degrees)
-  int distance;   // Measured distance from ultrasonic sensor (in cm)
-} struct_message;
+// Ultrasonic Sensor Pins
+const int trigPin = 2;
+const int echoPin = 9;
 
-struct_message incomingData; // Variable to store received data
+// LED Pins
+const int redLED = 6;
+const int greenLED = 7;
 
-// Callback function that gets triggered automatically when data is received
-void OnDataRecv(const uint8_t * mac, const uint8_t *incomingDataBytes, int len) {
-  // Copy incoming byte data into the structured format
-  memcpy(&incomingData, incomingDataBytes, sizeof(incomingData));
+// Servo Objects
+Servo radarServo; // Radar scanning servo
+Servo gunServo;   // Gun tracking servo
 
-  // Display received data in the Serial Monitor
-  Serial.print("Receiver Received -> Angle: ");
-  Serial.print(incomingData.angle);
-  Serial.print("°, Distance: ");
-  Serial.print(incomingData.distance);
-  Serial.println(" cm");
-}
+// Variables
+long duration;
+int distance;
+const int gunServoPin = 11;
 
 void setup() {
-  Serial.begin(115200); // Initialize Serial Monitor at 115200 baud
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  pinMode(redLED, OUTPUT);
+  pinMode(greenLED, OUTPUT);
 
-  // Configure ESP32 as a Wi-Fi Station (not connected to any router)
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect(); // Ensures it doesn't auto-connect to any Wi-Fi network
+  Serial.begin(9600);
 
-  // Initialize ESP-NOW
-  if (esp_now_init() != ESP_OK) {
-    Serial.println("Error initializing ESP-NOW");
-    return; // Stop execution if ESP-NOW fails to initialize
-  }
-
-  // Register the receive callback function
-  esp_now_register_recv_cb(OnDataRecv);
-
-  Serial.println("ESP-NOW Receiver Ready"); // Indicate successful setup
+  radarServo.attach(12);        // Radar scanning
+  gunServo.attach(gunServoPin); // Gun tracking
+  gunServo.write(90);           // Start at center
 }
 
 void loop() {
-  // No repeated actions needed here.
-  // Data is received and handled via the OnDataRecv callback.
+  // Sweep left to right
+  for (int angle = 15; angle <= 165; angle++) {
+    scanAndReact(angle);
+  }
+
+  // Sweep right to left
+  for (int angle = 165; angle >= 15; angle--) {
+    scanAndReact(angle);
+  }
+}
+
+// Function to scan and react to distance
+void scanAndReact(int angle) {
+  radarServo.write(angle);
+  delay(30);
+  distance = calculateDistance();
+
+  Serial.print(angle);
+  Serial.print(",");
+  Serial.print(distance);
+  Serial.print(".");
+
+  if (distance < 10) {
+    digitalWrite(redLED, HIGH);
+    digitalWrite(greenLED, LOW);
+    gunServo.write(angle); // Aim gun
+  } else {
+    digitalWrite(redLED, LOW);
+    digitalWrite(greenLED, HIGH);
+    gunServo.write(90);    // Reset gun to center
+  }
+}
+
+// Function to calculate distance
+int calculateDistance() {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  duration = pulseIn(echoPin, HIGH);
+  return duration * 0.034 / 2;
 }
